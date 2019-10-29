@@ -36,109 +36,109 @@ parser.add_argument('--z_dim', type=int, default=4,
 
 opt = parser.parse_args()
 
-assert opt.model in ['normal', 'gamma'], "Model {} is not supported.".format(opt.model)
-assert opt.dataset in ['cifar-10','mnist','b_mnist'], "Dataset {} is not supported".format(opt.dataset)
+if __name__ == '__main__':
+    assert opt.model in ['normal', 'gamma'], "Model {} is not supported.".format(opt.model)
+    assert opt.dataset in ['cifar-10','mnist','b_mnist'], "Dataset {} is not supported".format(opt.dataset)
 
-data_folder = os.path.join(".","data")
-if not os.path.isdir(data_folder):
-    os.makedirs(data_folder)
+    data_folder = os.path.join(".","data")
+    if not os.path.isdir(data_folder):
+        os.makedirs(data_folder)
 
-if opt.dataset == 'cifar-10':
-    t_dataset = dsets.CIFAR10(root=os.path.join(".",'data'), train=True, 
-        download=True, transform=transforms.Compose([transforms.ToTensor()]))
+    if opt.dataset == 'cifar-10':
+        t_dataset = dsets.CIFAR10(root=os.path.join(".",'data'), train=True, 
+            download=True, transform=transforms.Compose([transforms.ToTensor()]))
+        v_dataset = dsets.CIFAR10(root=os.path.join(".",'data'), train=False, 
+            download=True, transform=transforms.Compose([transforms.ToTensor()]))
 
-    v_dataset = dsets.CIFAR10(root=os.path.join(".",'data'), train=False, 
-        download=True, transform=transforms.Compose([transforms.ToTensor()]))
+        if os.path.exists(os.path.join(data_folder,'cifar-10-python.tar.gz')):
+            os.remove(os.path.join(data_folder,'cifar-10-python.tar.gz'))
 
-    if os.path.exists(os.path.join(data_folder,'cifar-10-python.tar.gz')):
-        os.remove(os.path.join(data_folder,'cifar-10-python.tar.gz'))
+    elif opt.dataset == 'mnist':
+        t_dataset = dsets.MNIST(root=os.path.join(".",'data'), train=True, download=True,
+            transform=transforms.Compose([transforms.ToTensor(), ReshapeTransform((-1,))]))
 
-elif opt.dataset == 'mnist':
-    t_dataset = dsets.MNIST(root=os.path.join(".",'data'), train=True, download=True,
-        transform=transforms.Compose([transforms.ToTensor(), ReshapeTransform((-1,))]))
+        v_dataset = dsets.MNIST(root=os.path.join(".",'data'), train=False, download=True,
+            transform=transforms.Compose([transforms.ToTensor(), ReshapeTransform((-1,))]))
 
-    v_dataset = dsets.MNIST(root=os.path.join(".",'data'), train=False, download=True,
-        transform=transforms.Compose([transforms.ToTensor(), ReshapeTransform((-1,))]))
+        if os.path.exists(os.path.join(".","data","MNIST","raw")):
+            shutil.rmtree(os.path.join(".","data","MNIST","raw"))
 
-    if os.path.exists(os.path.join(".","data","MNIST","raw")):
-        shutil.rmtree(os.path.join(".","data","MNIST","raw"))
+    elif opt.dataset == 'b_mnist':
+        bpath = os.path.join(".","data","b_mnist")
 
-elif opt.dataset == 'b_mnist':
-    bpath = os.path.join(".","data","b_mnist")
+        train_data, validation_data, test_data = binarized_mnist_fixed_binarization(bpath)
 
-    train_data, validation_data, test_data = binarized_mnist_fixed_binarization(bpath)
+        t_dataset = TensorDataset(torch.from_numpy(train_data))
+        v_dataset = TensorDataset(torch.from_numpy(validation_data))
 
-    t_dataset = TensorDataset(torch.from_numpy(train_data))
-    v_dataset = TensorDataset(torch.from_numpy(validation_data))
+    t_generator = DataLoader(t_dataset, batch_size=opt.b_size, num_workers=8, shuffle=True)
+    v_generator = DataLoader(v_dataset, batch_size=opt.b_size, num_workers=8, shuffle=True)
 
-t_generator = DataLoader(t_dataset, batch_size=opt.b_size, num_workers=8, shuffle=True)
-v_generator = DataLoader(v_dataset, batch_size=opt.b_size, num_workers=8, shuffle=True)
+    recons_meter = AverageMeter()
+    kl_meter = AverageMeter()
+    taotal_meter = AverageMeter()
 
-recons_meter = AverageMeter()
-kl_meter = AverageMeter()
-taotal_meter = AverageMeter()
+    metrics = [recons_meter, kl_meter, taotal_meter]
+    logger_list = ["Epoch","Recons","KL","Full"]
 
-metrics = [recons_meter, kl_meter, taotal_meter]
-logger_list = ["Epoch","Recons","KL","Full"]
+    suffix_logger = "{}_{}_{}_{}".format(opt.model,opt.dataset,opt.b_size,opt.z_dim)
 
-suffix_logger = "{}_{}_{}_{}".format(opt.model,opt.dataset,opt.b_size,opt.z_dim)
+    train_logger = Logger(os.path.join(data_folder,'train_{}.log'.format(suffix_logger)),logger_list)
+    val_logger = Logger(os.path.join(data_folder,'val_{}.log'.format(suffix_logger)),logger_list + ["MLikeli"])
 
-train_logger = Logger(os.path.join(data_folder,'train_{}.log'.format(suffix_logger)),logger_list)
-val_logger = Logger(os.path.join(data_folder,'val_{}.log'.format(suffix_logger)),logger_list + ["MLikeli"])
+    if opt.model == 'normal':
+        vae_model = gaussian_vae(opt.dataset)
+        compute_vae = compute_gaussian
 
-if opt.model == 'normal':
-    vae_model = gaussian_vae(opt.dataset)
-    compute_vae = compute_gaussian
-
-elif opt.model == 'gamma':
-    vae_model = gamma_vae(opt.dataset)
-    compute_vae = compute_gamma
+    elif opt.model == 'gamma':
+        vae_model = gamma_vae(opt.dataset)
+        compute_vae = compute_gamma
 
 
-maps_folder = os.path.join(data_folder, "maps", opt.model)
-if not os.path.isdir(maps_folder):
-    os.makedirs(os.path.join(maps_folder,"train"))
-    os.makedirs(os.path.join(maps_folder,"val"))
+    maps_folder = os.path.join(data_folder, "maps", opt.model)
+    if not os.path.isdir(maps_folder):
+        os.makedirs(os.path.join(maps_folder,"train"))
+        os.makedirs(os.path.join(maps_folder,"val"))
 
-models_folder = os.path.join(data_folder, "models")
-if not os.path.isdir(models_folder):
-    os.makedirs(models_folder)
+    models_folder = os.path.join(data_folder, "models")
+    if not os.path.isdir(models_folder):
+        os.makedirs(models_folder)
 
-print("{} model chosen.\n".format(opt.model))
+    print("{} model chosen.\n".format(opt.model))
 
-vae = Model(vae_model,z_dim=opt.z_dim)
+    vae = Model(vae_model,z_dim=opt.z_dim)
 
-best_loss = float("inf")
-best_epoch = -1
+    best_loss = float("inf")
+    best_epoch = -1
 
-for epoch in range(opt.epochs):
+    for epoch in range(opt.epochs):
 
-    for m in metrics:
-        m.reset()
+        for m in metrics:
+            m.reset()
 
-    print("====== Epoch {} ======".format(epoch))
-    train(epoch, vae, t_generator, compute_vae, metrics, (models_folder, maps_folder), opt, train_logger)
-    vae_loss,log_p_x = val(epoch, vae, v_generator, compute_vae, metrics, (models_folder, maps_folder), opt, val_logger)
-    
-    is_best = False
-    if vae_loss < best_loss:
-        best_loss = vae_loss
-        best_epoch = epoch
-        is_best = True
+        print("====== Epoch {} ======".format(epoch))
+        train(epoch, vae, t_generator, compute_vae, metrics, (models_folder, maps_folder), opt, train_logger)
+        vae_loss,log_p_x = val(epoch, vae, v_generator, compute_vae, metrics, (models_folder, maps_folder), opt, val_logger)
+        
+        is_best = False
+        if vae_loss < best_loss:
+            best_loss = vae_loss
+            best_epoch = epoch
+            is_best = True
 
-    internal_state = {
-        'model':opt.model,
-        'dataset': opt.dataset,
-        'z_dim': opt.z_dim,
-        'current_epoch': epoch,
-        'best_epoch': best_epoch,
-        'best_loss': best_loss,
-        'model_vae_state_dict': vae.vae.state_dict(),
-        'optimizer_vae_state_dict': vae.vae_optimizer.state_dict()
+        internal_state = {
+            'model':opt.model,
+            'dataset': opt.dataset,
+            'z_dim': opt.z_dim,
+            'current_epoch': epoch,
+            'best_epoch': best_epoch,
+            'best_loss': best_loss,
+            'model_vae_state_dict': vae.vae.state_dict(),
+            'optimizer_vae_state_dict': vae.vae_optimizer.state_dict()
 
-    }
+        }
 
-    save_model(internal_state, models_folder, is_best, epoch, opt.model)
-    
-train_logger.close()
-val_logger.close()
+        save_model(internal_state, models_folder, is_best, epoch, opt.model)
+        
+    train_logger.close()
+    val_logger.close()

@@ -17,7 +17,7 @@ def train(epoch, model, generator, compute_vae, metrics, folders, opt, logger):
         model.zero_grad()
 
         imgs_ = imgs.squeeze(0)
-
+        
         if torch.cuda.is_available():
             imgs_ = imgs_.cuda(non_blocking=True)
 
